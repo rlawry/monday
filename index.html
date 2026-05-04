@@ -604,7 +604,7 @@
                 co2QuizDone = true;
                 co2AllCorrect = CO2_QUESTIONS.every((q,i)=>co2QuizAnswers[i]===q.ans);
                 co2TaskPhase = 3;
-                co2TaskDone = true;  // star awarded for completing all tasks + quiz
+                if (co2AllCorrect) co2TaskDone = true;
               }
             }
           } else {
@@ -635,7 +635,7 @@
               albQuizDone=true;
               albAllCorrect=ALB_QUESTIONS.every((q,i)=>albQuizAnswers[i]===q.ans);
               albTaskPhase=3;
-              albedoStarDone=true;  // star awarded for completing all tasks + quiz
+              if (albAllCorrect) albedoStarDone=true;
             }
           }
         } else if (albTaskPhase === 3) {
@@ -661,7 +661,16 @@
           if (graphStep===0) graphQ1^=1;
           if (graphStep===1) graphQ2^=1;
         }
-        if (e.key==='Enter') { if(graphStep<2) graphStep++; else { state='menu'; glacierTaskComplete=true; } }
+        if (e.key==='Enter') {
+          if (graphStep<2) {
+            graphStep++;
+          } else {
+            const cQ1=graphScenario==='growing'?1:0, cQ2=graphScenario==='growing'?1:0;
+            const glacierCorrect=(graphQ1===cQ1&&graphQ2===cQ2);
+            if (glacierCorrect) glacierTaskComplete=true;
+            state='menu';
+          }
+        }
         if (e.key==='Escape') state='menu';
       }
     });
@@ -838,8 +847,8 @@
         putCentered(G,17,'◄ ► to choose   ENTER to confirm',7);
       } else {
         const cQ1=graphScenario==='growing'?1:0, cQ2=graphScenario==='growing'?1:0;
-        if(graphQ1===cQ1&&graphQ2===cQ2) { putCentered(G,17,'✓  CORRECT!  Well done.   [ ENTER ] to return to menu',10); }
-        else { const a1=cQ1===0?'RISING':'FALLING',a2=cQ2===0?'WARMER':'COOLER'; putCentered(G,17,'✗  Incorrect. (Ans: '+a1+' / '+a2+')   [ ENTER ] to continue',12); }
+        if(graphQ1===cQ1&&graphQ2===cQ2) { putCentered(G,17,'✓  CORRECT!  ★ Star earned!  [ ENTER ] to menu',10); }
+        else { const a1=cQ1===0?'RISING':'FALLING',a2=cQ2===0?'WARMER':'COOLER'; putCentered(G,17,'✗  Wrong. ('+a1+'/'+a2+')  Redo activity for star.  [ ENTER ]',12); }
       }
       putCentered(G,18,'ESC: return to menu',7);
     }
@@ -1283,31 +1292,29 @@
         ctx.fillStyle=PAL[7]; ctx.textAlign='center';
         ctx.fillText('◄ ► / ▲ ▼ navigate    ENTER confirm', CW/2, CH*0.96);
       } else if (co2TaskPhase === 3) {
-        // Results overlay
         ctx.fillStyle='rgba(0,0,0,0.82)';
         ctx.fillRect(0,0,CW,CH);
-        ctx.font=`bold ${Math.floor(CH*0.055)}px 'VT323', monospace`;
+        ctx.font=`bold ${Math.floor(CH*0.052)}px 'VT323', monospace`;
         ctx.textAlign='center';
-        ctx.fillStyle=PAL[10];
-        ctx.fillText('★  Quiz Complete!  ★', CW/2, CH*0.22);
-        ctx.font=`${Math.floor(CH*0.034)}px 'VT323', monospace`;
-        ctx.fillStyle=PAL[14];
-        ctx.fillText('Star awarded for completing all tasks.', CW/2, CH*0.30);
         if (co2AllCorrect) {
           ctx.fillStyle=PAL[10];
-          ctx.font=`${Math.floor(CH*0.038)}px 'VT323', monospace`;
-          ctx.fillText('✓  All answers correct!', CW/2, CH*0.40);
+          ctx.fillText('★  ALL CORRECT!  ★', CW/2, CH*0.20);
+          ctx.font=`${Math.floor(CH*0.036)}px 'VT323', monospace`;
+          ctx.fillStyle=PAL[14];
+          ctx.fillText('★ Star earned! Return to the menu.', CW/2, CH*0.30);
         } else {
           ctx.fillStyle=PAL[12];
+          ctx.fillText('✗  Incorrect answers.', CW/2, CH*0.18);
           ctx.font=`${Math.floor(CH*0.032)}px 'VT323', monospace`;
-          ctx.fillText('✗  Review the answers below:', CW/2, CH*0.40);
-          ctx.font=`${Math.floor(CH*0.032)}px 'VT323', monospace`;
+          ctx.fillStyle=PAL[14];
+          ctx.fillText('No star awarded. Redo the activity to earn it.', CW/2, CH*0.27);
+          ctx.font=`${Math.floor(CH*0.028)}px 'VT323', monospace`;
           ctx.fillStyle=PAL[7];
-          // Show correct answers
+          ctx.fillText('Correct answers:', CW/2, CH*0.35);
           CO2_QUESTIONS.forEach((q,i)=>{
             const correct = co2QuizAnswers[i]===q.ans;
             ctx.fillStyle = correct ? PAL[10] : PAL[12];
-            ctx.fillText((correct?'✓':'✗')+' Q'+(i+1)+': '+q.opts[q.ans], CW/2, CH*0.40+i*CH*0.085);
+            ctx.fillText((correct?'✓':'✗')+' Q'+(i+1)+': '+q.opts[q.ans], CW/2, CH*0.42+i*CH*0.082);
           });
         }
         ctx.font=`${Math.floor(CH*0.028)}px 'VT323', monospace`;
