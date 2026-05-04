@@ -104,13 +104,14 @@
 
     // ── CO2 canvas sim state ─────────────────────────────────────────
     let co2Ppm    = 415;
-    let co2Temp   = 1.1;
+    let co2Temp   = 13.8;
     let co2Sel    = 1;
     let co2Active = [false, false, false];
-    const CO2_RATES  = [-3,   5,  12];
+    let forestCount = 3;   // 0 = stumps, 1-10 = trees; scales forest absorption rate
+    const CO2_RATES  = [-8,   5,  12];
     const TEMP_RATES = [-0.04, 0.06, 0.14];
 
-    // Task progression: 0=raise to +6, 1=lower to -3, 2=quiz, 3=done
+    // Task progression: 0=raise to 22°C, 1=lower to 10°C, 2=quiz, 3=done
     let co2TaskPhase = 0;
     let co2TaskDone  = false;   // star awarded flag
 
@@ -150,8 +151,8 @@
     let escapingIR   = [];   // IR arrows that broke through atmosphere
 
     function initCO2Sim() {
-      co2Ppm = 415; co2Temp = 1.1; co2Sel = 1;
-      co2Active = [false,false,false];
+      co2Ppm = 415; co2Temp = 13.8; co2Sel = 1;
+      co2Active = [false,false,false]; forestCount = 3;
       co2Particles = []; sunRays = []; irArrows = []; escapingIR = [];
       co2TaskPhase = 0;
       co2QuizIdx = 0; co2QuizSel = 0; co2QuizAnswers = [];
@@ -558,7 +559,7 @@
 
     // ── Keydown ──────────────────────────────────────────────────────
     document.addEventListener('keydown', e => {
-      if (['ArrowLeft','ArrowRight','Enter','Escape'].includes(e.key)) e.preventDefault();
+      if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter','Escape'].includes(e.key)) e.preventDefault();
       // ── Name entry state ─────────────────────────────────────────
       if (state === 'name-entry') {
         if (e.key === 'Enter' && nameEntry.trim().length > 0) {
@@ -617,6 +618,10 @@
           if (e.key==='ArrowLeft')  co2Sel=(co2Sel+2)%3;
           if (e.key==='ArrowRight') co2Sel=(co2Sel+1)%3;
           if (e.key==='Enter') co2Active[co2Sel]=!co2Active[co2Sel];
+          if (co2Sel === 0) {
+            if (e.key==='ArrowUp')   forestCount = Math.min(20, forestCount + 1);
+            if (e.key==='ArrowDown') forestCount = Math.max(0,  forestCount - 1);
+          }
         }
         if (e.key==='Escape') { state='menu'; }
       } else if (state==='albedo-intro') {
@@ -897,15 +902,46 @@
     const REGION_RATES  = ['absorbs CO₂', 'emits CO₂', 'emits CO₂ (most)'];
 
     function spawnCO2(progress) {
-      const W=canvas.width, H=canvas.height;
-      const srcIdx = Math.floor(Math.random()*3);
-      const x = (REGION_X[srcIdx] + (Math.random()-0.5)*0.08) * W;
-      const yStart = ATM_BOT * H;
-      const yTop   = ATM_TOP * H;          // ceiling — never go above this
+      const W = canvas.width, H = canvas.height;
+      const pool = [0];
+      if (co2Active[1]) pool.push(1, 1, 1, 1);
+      if (co2Active[2]) pool.push(2, 2, 2, 2, 2, 2, 2);
+      const srcIdx = pool[Math.floor(Math.random()*pool.length)];
+      const grdY   = GROUND_TOP * H;
+      const sceneH = (GROUND_TOP - ATM_BOT) * H;
+      const drawSz = Math.min(80, sceneH * 0.45);
+      const cx     = REGION_X[srcIdx] * W;
+
+      let x, y, vy;
+      if (srcIdx === 0) {
+        // Forest: start near atmosphere bottom, descend into treetops
+        x  = cx + (Math.random()-0.5) * drawSz * 0.6;
+        y  = ATM_BOT * H + progress * sceneH * 0.7;
+        vy = 0.3 + Math.random()*0.3;
+      } else if (srcIdx === 1) {
+        // Volcano: rise from crater opening
+        x  = cx + (Math.random()-0.5) * drawSz * 0.12;
+        y  = grdY - drawSz * 0.9;
+        vy = -(0.6 + Math.random()*0.5);
+      } else {
+        // City: rise from random building rooftop
+        const bldgs = [
+          { ox: -drawSz*0.22, h: drawSz*0.55, w: drawSz*0.12 },
+          { ox: -drawSz*0.08, h: drawSz*0.75, w: drawSz*0.10 },
+          { ox:  drawSz*0.04, h: drawSz*0.60, w: drawSz*0.13 },
+          { ox:  drawSz*0.18, h: drawSz*0.45, w: drawSz*0.10 },
+        ];
+        const b = bldgs[Math.floor(Math.random()*bldgs.length)];
+        x  = cx + b.ox + (Math.random()-0.5) * b.w;
+        y  = grdY - b.h;
+        vy = -(0.5 + Math.random()*0.4);
+      }
+
       co2Particles.push({
-        x, y: yStart - progress*(yStart - yTop),
+        src: srcIdx,
+        x, y,
         vx: (Math.random()-0.5)*0.4,
-        vy: -(0.5 + Math.random()*0.4),
+        vy,
         alpha: 0.7 + Math.random()*0.3,
         r: 3 + Math.random()*3,
       });
@@ -952,8 +988,9 @@
       // ── Update PPM/Temp ──────────────────────────────────────────
       for (let i=0; i<3; i++) {
         if (co2Active[i]) {
-          co2Ppm  = Math.min(800, Math.max(280, co2Ppm  + CO2_RATES[i]  * dt));
-          co2Temp = Math.min(6,   Math.max(-2,  co2Temp + TEMP_RATES[i] * dt));
+          const treeMult = i === 0 ? forestCount / 20 : 1;
+          co2Ppm  = Math.min(1800, Math.max(280, co2Ppm  + CO2_RATES[i]  * treeMult * dt));
+          co2Temp = Math.min(38,  Math.max(6,   co2Temp + TEMP_RATES[i] * treeMult * dt));
         }
       }
 
@@ -1020,7 +1057,7 @@
       const atmY  = ATM_TOP  * CH;
       const atmH  = (ATM_BOT - ATM_TOP) * CH;
       // Intensity from PPM
-      const ppmFrac = Math.max(0, Math.min(1, (co2Ppm-280)/(800-280)));
+      const ppmFrac = Math.max(0, Math.min(1, (co2Ppm-280)/(1800-280)));
       const atmAlpha = 0.15 + ppmFrac*0.45;
       const atmGrad = ctx.createLinearGradient(0, atmY, 0, atmY+atmH);
       atmGrad.addColorStop(0, `rgba(0,170,170,${atmAlpha})`);
@@ -1043,11 +1080,11 @@
       ctx.fillText('ATMOSPHERE', 8, atmY + atmH*0.65);
 
       // ── CO2 molecule dots in atmosphere band ─────────────────────
-      const numMolec = Math.floor(8 + ppmFrac*60);
+      const numMolec = Math.floor(5 + ppmFrac*120);
       for (let i=0; i<numMolec; i++) {
         const mx = ((Math.sin(i*137.5)*0.5+0.5)) * CW;
         const my = atmY + ((Math.cos(i*97.3)*0.5+0.5)) * atmH;
-        ctx.fillStyle = PAL[11];
+        ctx.fillStyle = '#FFFF99';
         ctx.globalAlpha = 0.5 + 0.5*(Math.sin(i*23.1 + ts*0.001));
         ctx.beginPath(); ctx.arc(mx, my, 2.5, 0, Math.PI*2); ctx.fill();
       }
@@ -1103,31 +1140,42 @@
       });
       escapingIR = escapingIR.filter(r => !r.dead);
 
-      // ── CO2 molecule particles rising ────────────────────────────
+      // ── CO2 molecule particles ───────────────────────────────────
       co2Particles.forEach(p => {
-        p.x  += p.vx;
-        p.y  += p.vy;
-        const ceiling = ATM_TOP * CH;
-        const floor   = ATM_BOT  * CH;
-        // Hard clamp — bounce/stop at atmosphere ceiling
-        if (p.y < ceiling) {
-          p.y  = ceiling;
-          p.vy = 0;        // stop rising
-          p.vx *= 0.95;    // drift slowly sideways and fade
-          p.alpha -= 0.02;
-        }
-        if (p.alpha <= 0 || p.x < 0 || p.x > CW) { p.dead = true; return; }
+        if ((p.src === 1 && !co2Active[1]) || (p.src === 2 && !co2Active[2])) { p.dead = true; return; }
+        p.x += p.vx;
+        p.y += p.vy;
 
-        const fade = Math.min(1, (p.y - ceiling) / (floor - ceiling) * 3);
-        ctx.fillStyle = PAL[11];
-        ctx.globalAlpha = p.alpha * Math.max(0.05, fade);
+        let drawAlpha;
+        if (p.src === 0) {
+          // Forest: descend into treetops — fade as absorbed
+          if (p.y >= GROUND_TOP * CH || p.alpha <= 0 || p.x < 0 || p.x > CW) { p.dead = true; return; }
+          const descent = Math.max(0, p.y - ATM_BOT * CH) / ((GROUND_TOP - ATM_BOT) * CH);
+          drawAlpha = p.alpha * (1 - descent * 0.85);
+        } else {
+          // Volcano/City: rise to atmosphere ceiling then drift and fade
+          const ceiling = ATM_TOP * CH;
+          const floor   = ATM_BOT  * CH;
+          if (p.y < ceiling) {
+            p.y   = ceiling;
+            p.vy  = 0;
+            p.vx *= 0.95;
+            p.alpha -= 0.02;
+          }
+          if (p.alpha <= 0 || p.x < 0 || p.x > CW) { p.dead = true; return; }
+          const fade = Math.min(1, (p.y - ceiling) / (floor - ceiling) * 3);
+          drawAlpha = p.alpha * Math.max(0.05, fade);
+        }
+
+        ctx.fillStyle = '#FFFF99';
+        ctx.globalAlpha = drawAlpha;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
         ctx.fill();
         ctx.font = `${Math.floor(CH*0.018)}px 'VT323', monospace`;
-        ctx.fillStyle = PAL[11];
+        ctx.fillStyle = '#FFFF99';
         ctx.textAlign = 'center';
-        ctx.globalAlpha = p.alpha * Math.max(0.05, fade) * 0.8;
+        ctx.globalAlpha = drawAlpha * 0.8;
         ctx.fillText('o', p.x, p.y + p.r*0.4);
       });
       co2Particles = co2Particles.filter(p => !p.dead);
@@ -1159,7 +1207,7 @@
         const isOn = co2Active[ri];
         const isSel= ri === co2Sel;
 
-        if (ri === 0) drawForest(cx, iconTopY, drawSz, isOn, ts);
+        if (ri === 0) drawForest(cx, iconTopY, drawSz, isOn, ts, forestCount);
         if (ri === 1) drawVolcano(cx, iconTopY, drawSz, isOn, ts);
         if (ri === 2) drawCity(cx, iconTopY, drawSz, isOn, ts);
 
@@ -1187,7 +1235,8 @@
         // Rate hint
         ctx.font = `${Math.floor(CH*0.024)}px 'VT323', monospace`;
         ctx.fillStyle = isSel ? PAL[14] : PAL[8];
-        ctx.fillText(REGION_RATES[ri], cx, boxY + boxH*0.92);
+        const rateLabel = ri === 0 ? forestCount + '/20 trees  absorbs CO₂' : REGION_RATES[ri];
+        ctx.fillText(rateLabel, cx, boxY + boxH*0.92);
       });
 
       // ── HUD: readouts ────────────────────────────────────────────
@@ -1207,34 +1256,33 @@
       ctx.fillRect(barX, barY, barW*ppmFrac, barHt);
 
       // Temp
-      const tempFrac = Math.max(0,Math.min(1,(co2Temp+2)/8));
-      ctx.fillStyle = co2Temp > 3 ? PAL[12] : co2Temp > 1 ? PAL[14] : PAL[11];
+      const tempFrac = Math.max(0,Math.min(1,(co2Temp-6)/32));
+      ctx.fillStyle = co2Temp > 28 ? PAL[12] : co2Temp > 18 ? PAL[14] : PAL[11];
       ctx.textAlign = 'right';
-      const tSign = co2Temp >= 0 ? '+' : '';
-      ctx.fillText('GLOBAL TEMP: ' + tSign + co2Temp.toFixed(2) + '°C', CW*0.98, CH*0.04);
+      ctx.fillText('GLOBAL TEMP: ' + co2Temp.toFixed(1) + '°C', CW*0.98, CH*0.04);
 
       // Temp bar
       const tBarX=CW*0.63, tBarY=CH*0.07, tBarW=CW*0.35;
       ctx.strokeStyle=PAL[8]; ctx.lineWidth=1;
       ctx.strokeRect(tBarX, tBarY, tBarW, barHt);
-      ctx.fillStyle=co2Temp>3?PAL[12]:co2Temp>1?PAL[14]:PAL[10];
+      ctx.fillStyle=co2Temp>28?PAL[12]:co2Temp>18?PAL[14]:PAL[10];
       ctx.fillRect(tBarX, tBarY, tBarW*tempFrac, barHt);
 
       // ── Task row: between selectors and controls hint ───────────
       if (co2TaskPhase === 0 || co2TaskPhase === 1) {
         // Check phase advance
-        if (co2TaskPhase === 0 && co2Temp >= 5.9) {
+        if (co2TaskPhase === 0 && co2Temp >= 21.9) {
           co2TaskPhase = 1;
           co2Active = [false,false,false];
         }
-        if (co2TaskPhase === 1 && co2Temp <= -3.0) {
+        if (co2TaskPhase === 1 && co2Temp <= 10.1) {
           co2TaskPhase = 2;
           co2Active = [false,false,false];
         }
-        const target = co2TaskPhase === 0 ? 'RAISE Global Temp to +6°C' : 'LOWER Global Temp to −3°C';
+        const target = co2TaskPhase === 0 ? 'RAISE Global Temp to 22°C' : 'LOWER Global Temp to 10°C';
         const prog   = co2TaskPhase === 0
-          ? Math.max(0, Math.min(1, (co2Temp - 1.1) / 4.9))
-          : Math.max(0, Math.min(1, (1.1 - co2Temp) / 4.1));
+          ? Math.max(0, Math.min(1, (co2Temp - 13.8) / 8.2))
+          : Math.max(0, Math.min(1, (22 - co2Temp) / 12));
         // Row sits just below selector boxes, above controls hint
         const selBoxBot = grdY + CH*0.02 + CH*0.075; // bottom of selector row
         const rowY      = selBoxBot + CH*0.008;        // small gap
@@ -1327,7 +1375,10 @@
         ctx.font = `${Math.floor(CH*0.028)}px 'VT323', monospace`;
         ctx.fillStyle = PAL[7];
         ctx.textAlign = 'center';
-        ctx.fillText('◄ ► select region    ENTER toggle on/off    ESC menu', CW/2, CH*0.975);
+        const hint = co2Sel === 0
+          ? '◄ ► select    ▲ ▼ add/remove trees    ENTER toggle on/off    ESC menu'
+          : '◄ ► select region    ENTER toggle on/off    ESC menu';
+        ctx.fillText(hint, CW/2, CH*0.975);
       }
 
       // ── Legend ───────────────────────────────────────────────────
@@ -1341,37 +1392,46 @@
     }
 
     // ── Scene element drawers ─────────────────────────────────────────
-    function drawForest(cx, sceneY, sceneH, active, ts) {
-      const treeH = sceneH * 0.85;
-      const trunkW = sceneH * 0.06;
-      const offsets = [-sceneH*0.18, 0, sceneH*0.18];
-      offsets.forEach((ox, i) => {
-        const tx = cx + ox;
-        const baseY = sceneY + sceneH;
-        // trunk
-        ctx.fillStyle = PAL[6];
-        ctx.fillRect(tx - trunkW/2, baseY - treeH*0.35, trunkW, treeH*0.35);
-        // canopy layers
-        const layers = 3;
-        for (let l=0; l<layers; l++) {
-          const ly  = baseY - treeH*0.25 - l*treeH*0.22;
-          const lw  = (sceneH*0.22) * (1 - l*0.2);
-          ctx.fillStyle = active
-            ? `rgb(0,${140+l*30},0)`
-            : `rgb(0,${80+l*20},0)`;
-          ctx.beginPath();
-          ctx.moveTo(tx, ly - treeH*0.22);
-          ctx.lineTo(tx + lw, ly);
-          ctx.lineTo(tx - lw, ly);
-          ctx.closePath();
-          ctx.fill();
+    function drawForest(cx, sceneY, sceneH, active, ts, count) {
+      const baseY  = sceneY + sceneH;
+      const treeH  = sceneH * 0.85;
+
+      if (count === 0) {
+        // Stumps: trunks only, no canopy
+        const stumpOffsets = [-sceneH*0.18, 0, sceneH*0.18];
+        const stumpW = sceneH * 0.08;
+        stumpOffsets.forEach(ox => {
+          ctx.fillStyle = PAL[6];
+          ctx.fillRect(cx + ox - stumpW/2, baseY - treeH*0.18, stumpW, treeH*0.18);
+        });
+      } else {
+        // 1–10 trees spread across available width, scaled to fit
+        const totalW  = sceneH * Math.min(1.6, 0.36 + Math.max(0, count - 3) * 0.2);
+        const trunkW  = Math.max(2, sceneH * 0.06 * Math.min(1, 4 / count));
+        const canopyS = Math.min(1, 3.5 / count);
+        for (let i = 0; i < count; i++) {
+          const tx = count === 1 ? cx : cx - totalW/2 + (i / (count - 1)) * totalW;
+          ctx.fillStyle = PAL[6];
+          const trunkH = treeH * 0.35 * canopyS;
+          ctx.fillRect(tx - trunkW/2, baseY - trunkH, trunkW, trunkH);
+          for (let l = 0; l < 3; l++) {
+            const ly = baseY - treeH*0.25 - l*treeH*0.22 * canopyS;
+            const lw = (sceneH*0.22) * (1 - l*0.2) * canopyS;
+            ctx.fillStyle = active ? `rgb(0,${140+l*30},0)` : `rgb(0,${80+l*20},0)`;
+            ctx.beginPath();
+            ctx.moveTo(tx, ly - treeH*0.22 * canopyS);
+            ctx.lineTo(tx + lw, ly);
+            ctx.lineTo(tx - lw, ly);
+            ctx.closePath();
+            ctx.fill();
+          }
         }
-      });
+      }
       // label
       ctx.font = `${Math.floor(sceneH*0.22)}px 'VT323', monospace`;
       ctx.fillStyle = active ? PAL[10] : PAL[2];
       ctx.textAlign = 'center';
-      ctx.fillText('FOREST', cx, sceneY + sceneH * 1.0);
+      ctx.fillText('FOREST', cx, sceneY + sceneH * 1.12);
     }
 
     function drawVolcano(cx, sceneY, sceneH, active, ts) {
@@ -1412,7 +1472,7 @@
       ctx.font = `${Math.floor(sceneH*0.22)}px 'VT323', monospace`;
       ctx.fillStyle = active ? PAL[14] : PAL[4];
       ctx.textAlign = 'center';
-      ctx.fillText('VOLCANO', cx, sceneY + sceneH * 1.0);
+      ctx.fillText('VOLCANO', cx, sceneY + sceneH * 1.12);
     }
 
     function drawCity(cx, sceneY, sceneH, active, ts) {
@@ -1443,7 +1503,7 @@
       ctx.font = `${Math.floor(sceneH*0.22)}px 'VT323', monospace`;
       ctx.fillStyle = active ? PAL[15] : PAL[7];
       ctx.textAlign = 'center';
-      ctx.fillText('CITY', cx, sceneY + sceneH * 1.0);
+      ctx.fillText('CITY', cx, sceneY + sceneH * 1.12);
     }
 
     // ================================================================
