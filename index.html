@@ -87,6 +87,8 @@
 
     // ── Core state ──────────────────────────────────────────────────
     let tick = 0, state = 'loading', selected = 0;
+    let studentName = '';
+    let nameEntry   = '';
 
     // ── Glacier state ───────────────────────────────────────────────
     let temperature=0, taskNum=1, taskDirection='raise', taskAmount=6;
@@ -557,8 +559,23 @@
     // ── Keydown ──────────────────────────────────────────────────────
     document.addEventListener('keydown', e => {
       if (['ArrowLeft','ArrowRight','Enter','Escape'].includes(e.key)) e.preventDefault();
+      // ── Name entry state ─────────────────────────────────────────
+      if (state === 'name-entry') {
+        if (e.key === 'Enter' && nameEntry.trim().length > 0) {
+          studentName = nameEntry.trim();
+          state = 'menu';
+        } else if (e.key === 'Backspace') {
+          nameEntry = nameEntry.slice(0, -1);
+        } else if (e.key.length === 1 && nameEntry.length < 24) {
+          nameEntry += e.key;
+        }
+        return;
+      }
       if (state==='loading'&&e.key==='Enter') { state='menu'; selected=0; }
       else if (state==='menu') {
+        // If all stars earned and no name yet, prompt name on any Enter
+        const allStars = glacierTaskComplete && co2TaskDone && albedoStarDone;
+        if (allStars && !studentName && e.key==='Enter') { nameEntry=''; state='name-entry'; return; }
         if (e.key==='ArrowLeft')  selected=(selected+2)%3;
         if (e.key==='ArrowRight') selected=(selected+1)%3;
         if (e.key==='Enter'&&selected===0) { initGlaciersTask(); state='glaciers-intro'; }
@@ -687,15 +704,47 @@
       });
     }
 
+
+    function drawNameEntry(G) {
+      putCentered(G, 2, '★  A L L   T A S K S   C O M P L E T E !  ★', 14);
+      putCentered(G, 4, 'You earned all three stars!', 10);
+      putCentered(G, 6, 'Enter your name for the record:', 15);
+      // Input box
+      const cursor = tick % 8 < 4 ? '█' : ' ';
+      const display = nameEntry + cursor;
+      const boxInner = display.padEnd(26);
+      putCentered(G, 9,  '┌' + '─'.repeat(28) + '┐', 11);
+      putCentered(G, 10, '│ ' + boxInner + ' │', 15);
+      putCentered(G, 11, '└' + '─'.repeat(28) + '┘', 11);
+      putCentered(G, 13, 'Type your name then press ENTER', 7);
+    }
+
     function drawMenu(G) {
+      const allStars = glacierTaskComplete && co2TaskDone && albedoStarDone;
+
+      // ── Celebration banner ──────────────────────────────────────
+      if (studentName) {
+        const msg = studentName + ' did their work for Monday!';
+        const DANCE_COLS = [14,10,11,12,13,14,15,10,11,12,13,14,15,10,11,12];
+        [...msg].forEach((ch, j) => {
+          const col = DANCE_COLS[(j + Math.floor(tick/2)) % DANCE_COLS.length];
+          const blink = (j + Math.floor(tick/3)) % 5 === 0;
+          const startC = 1 + Math.round(((W-2) - msg.length) / 2);
+          const gc = startC + j;
+          if (gc >= 1 && gc <= W-2) G[1][gc] = [ch, col, blink];
+        });
+      } else if (allStars) {
+        putCentered(G, 1, '★ ALL STARS EARNED! Press ENTER to record your name ★', 14, true);
+      }
+
       ACTIVITIES.forEach((lines,i)=>drawBox(G,BOX_ROW,BOX_COLS[i],lines,i===selected));
       if (glacierTaskComplete) putText(G,BOX_ROW+BOX_H,BOX_COLS[0]+Math.floor(BOX_W/2)-1,'★',14);
-      if (co2TaskDone)       putText(G,BOX_ROW+BOX_H,BOX_COLS[1]+Math.floor(BOX_W/2)-1,'★',14);
-      if (albedoStarDone)    putText(G,BOX_ROW+BOX_H,BOX_COLS[2]+Math.floor(BOX_W/2)-1,'★',14);
+      if (co2TaskDone)         putText(G,BOX_ROW+BOX_H,BOX_COLS[1]+Math.floor(BOX_W/2)-1,'★',14);
+      if (albedoStarDone)      putText(G,BOX_ROW+BOX_H,BOX_COLS[2]+Math.floor(BOX_W/2)-1,'★',14);
       const hint='◄ ►  to select   ENTER to launch', hintRow=BOX_ROW+BOX_H+2;
       if (hintRow<H-1) {
         const hs=1+Math.round(((W-2)-hint.length)/2);
-        [...hint].forEach((ch,j)=>{ const gc=hs+j; if(gc>=1&&gc<=W-2) G[hintRow][gc]=[ch,8,false]; });
+        [...hint].forEach((ch,j)=>{ const gc=hs+j; if(gc>=1&&gc<=W-2) G[hintRow][gc]=[ch,7,false]; });
       }
     }
 
@@ -1408,6 +1457,7 @@
       else if (state==='glaciers-graph') drawGlaciersGraph(G);
       else if (state==='co2-intro')      drawCO2Intro(G);
       else if (state==='albedo-intro')    drawAlbedoIntro(G);
+      else if (state==='name-entry')       drawNameEntry(G);
 
       document.getElementById('screen').innerHTML =
         G.map(row=>row.map(([ch,c,bl])=>{
